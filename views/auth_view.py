@@ -276,11 +276,10 @@ def build_auth_view(page: ft.Page, repository, on_auth_success):
                 spacing=0,
             ),
             demo_hint,
-            # Extra bottom padding so content can scroll above the virtual keyboard
-            ft.Container(height=Spacing.XXL * 2),
+            ft.Container(height=200),
         ],
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-        scroll=ft.ScrollMode.AUTO,
+        scroll=ft.ScrollMode.ADAPTIVE,
         expand=True,
     )
 
