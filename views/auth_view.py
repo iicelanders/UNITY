@@ -276,14 +276,18 @@ def build_auth_view(page: ft.Page, repository, on_auth_success):
                 spacing=0,
             ),
             demo_hint,
+            # Extra bottom padding so content can scroll above the virtual keyboard
+            ft.Container(height=Spacing.XXL * 2),
         ],
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         scroll=ft.ScrollMode.AUTO,
+        expand=True,
     )
 
     return ft.View(
         route="/auth",
         bgcolor=Colors.BACKGROUND_PRIMARY,
         padding=ft.padding.symmetric(horizontal=Spacing.LG),
+        scroll=ft.ScrollMode.AUTO,
         controls=[content],
     )
