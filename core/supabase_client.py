@@ -155,7 +155,20 @@ class SupabaseRepository:
             .eq("resuelta", False)
             .execute()
         )
-        return result.data
+        alerts = result.data or []
+
+        # ── DEBUG: log raw Supabase response for first record ─────
+        if alerts:
+            print(f"[DEBUG get_active_alerts] raw first record: {alerts[0]}")
+
+        # Normalize nested JOIN → flat key (match MockRepository contract)
+        for alert in alerts:
+            perfil_data = alert.get("perfiles") or {}
+            alert["nombre_usuario"] = (
+                perfil_data.get("nombre_completo") or "Usuario eliminado"
+            )
+
+        return alerts
 
     def get_user_alerts(self, user_id):
         result = (
@@ -234,7 +247,24 @@ class SupabaseRepository:
             .select("*, inventario_herramientas(nombre_herramienta), perfiles(nombre_completo)")
             .execute()
         )
-        return result.data
+        assignments = result.data or []
+
+        # ── DEBUG: log raw Supabase response for first record ─────
+        if assignments:
+            print(f"[DEBUG get_assignments] raw first record: {assignments[0]}")
+
+        # Normalize nested JOINs → flat keys (match MockRepository contract)
+        for assignment in assignments:
+            tool_data = assignment.get("inventario_herramientas") or {}
+            perfil_data = assignment.get("perfiles") or {}
+            assignment["nombre_herramienta"] = (
+                tool_data.get("nombre_herramienta") or "Herramienta eliminada"
+            )
+            assignment["nombre_usuario"] = (
+                perfil_data.get("nombre_completo") or "Usuario eliminado"
+            )
+
+        return assignments
 
     # ── Dashboard ─────────────────────────────────────────────────
 

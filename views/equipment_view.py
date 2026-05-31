@@ -440,13 +440,13 @@ def build_equipment_view(page, repository, user_id):
                                 ft.Column(
                                     controls=[
                                         ft.Text(
-                                            f"{a.get('nombre_herramienta', '')} × {a['cantidad']}",
+                                            f"{a.get('nombre_herramienta') or 'Herramienta eliminada'} × {a['cantidad']}",
                                             size=Typography.BODY,
                                             color=Colors.TEXT_PRIMARY,
                                             weight=ft.FontWeight.W_500,
                                         ),
                                         ft.Text(
-                                            f"→ {a.get('nombre_usuario', '')}",
+                                            f"→ {a.get('nombre_usuario') or 'Usuario eliminado'}",
                                             size=Typography.CAPTION,
                                             color=Colors.TEXT_SECONDARY,
                                         ),

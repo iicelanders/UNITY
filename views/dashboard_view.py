@@ -144,7 +144,7 @@ def build_dashboard_view(page: ft.Page, repository, user_id):
                                 ft.Column(
                                     controls=[
                                         ft.Text(
-                                            alert.get("nombre_usuario", "Usuario"),
+                                            alert.get("nombre_usuario") or "Usuario eliminado",
                                             size=Typography.BODY,
                                             color=Colors.TEXT_PRIMARY,
                                             weight=ft.FontWeight.W_500,
