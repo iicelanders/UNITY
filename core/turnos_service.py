@@ -31,10 +31,12 @@ def puede_editar_turnos(rol):
 
 
 def hay_solapamiento(turnos_existentes, usuario_id, inicio_hora, fin_hora, dia_semana):
-    """Check whether a new time block overlaps with existing ones for the same user.
+    """Check whether a new time block collides with an existing one for the same user.
 
-    Two blocks overlap when they share the same dia_semana AND their time
-    intervals intersect: new_start < existing_end AND new_end > existing_start.
+    A collision occurs when both blocks share the same dia_semana AND their
+    exact start/end hours match.  Adjacent or partially overlapping blocks
+    are allowed so that a single user can hold multiple shifts on the same
+    day (e.g. 08-10 and 10-12).
 
     Args:
         turnos_existentes: list of turno dicts from the repository.
@@ -44,7 +46,7 @@ def hay_solapamiento(turnos_existentes, usuario_id, inicio_hora, fin_hora, dia_s
         dia_semana: weekday int (0=Mon .. 6=Sun).
 
     Returns:
-        bool: True if there IS an overlap (block must be rejected).
+        bool: True if there IS a collision (block must be rejected).
     """
     new_start = _parse_time(inicio_hora)
     new_end = _parse_time(fin_hora)
@@ -58,8 +60,8 @@ def hay_solapamiento(turnos_existentes, usuario_id, inicio_hora, fin_hora, dia_s
         existing_start = _parse_time(turno["inicio_hora"])
         existing_end = _parse_time(turno["fin_hora"])
 
-        # Interval overlap condition
-        if new_start < existing_end and new_end > existing_start:
+        # Exact collision: same start AND same end hour
+        if new_start == existing_start and new_end == existing_end:
             return True
 
     return False

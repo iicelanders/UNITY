@@ -514,12 +514,10 @@ def _build_empty_cell(dia, hora, is_editable, on_click):
 def _build_assigned_cell(turno, is_editable, on_delete):
     """Render a cell with an assigned turno."""
     user_name = turno.get("nombre_usuario", "—")
-    # Truncate long names for the compact cell
-    display_name = user_name if len(user_name) <= 10 else user_name[:9] + "…"
 
     name_text = ft.Text(
-        display_name,
-        size=Typography.CAPTION,
+        user_name,
+        size=10,
         color=Colors.TEXT_ON_ACCENT,
         text_align=ft.TextAlign.CENTER,
         max_lines=1,
@@ -556,6 +554,7 @@ def _build_assigned_cell(turno, is_editable, on_delete):
         alignment=ft.alignment.center,
         padding=ft.padding.all(Spacing.XS),
         expand=True,
+        tooltip=user_name,
     )
 
 
