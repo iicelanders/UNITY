@@ -139,11 +139,12 @@ class SupabaseRepository:
 
     # ── SOS Alerts ────────────────────────────────────────────────
 
-    def create_alert(self, user_id, latitud, longitud):
+    def create_alert(self, user_id, latitud, longitud, tipo_emergencia=""):
         data = {
             "usuario_id": user_id,
             "latitud": latitud,
             "longitud": longitud,
+            "tipo_emergencia": tipo_emergencia,
         }
         result = self._client.table("alertas_sos").insert(data).execute()
         return result.data[0]
@@ -297,3 +298,101 @@ class SupabaseRepository:
     def get_all_volunteers(self):
         result = self._client.table("perfiles").select("*").execute()
         return result.data
+
+    # ── Cuadrillas (S3) ──────────────────────────────────────────
+
+    def get_cuadrilla(self, cuadrilla_id):
+        result = (
+            self._client.table("cuadrillas")
+            .select("*")
+            .eq("id", cuadrilla_id)
+            .execute()
+        )
+        return result.data[0] if result.data else None
+
+    def get_cuadrillas(self):
+        result = self._client.table("cuadrillas").select("*").execute()
+        return result.data
+
+    # ── Turnos (S3_HU01) ─────────────────────────────────────────
+
+    def get_turnos_by_cuadrilla(self, cuadrilla_id):
+        result = (
+            self._client.table("turnos")
+            .select("*, perfiles(nombre_completo)")
+            .eq("cuadrilla_id", cuadrilla_id)
+            .execute()
+        )
+        turnos = result.data or []
+
+        # Normalize nested JOIN → flat key (match MockRepository contract)
+        for turno in turnos:
+            perfil_data = turno.get("perfiles") or {}
+            turno["nombre_usuario"] = (
+                perfil_data.get("nombre_completo") or "Usuario eliminado"
+            )
+
+        return turnos
+
+    def create_turno(self, usuario_id, cuadrilla_id, inicio_hora, fin_hora, dia_semana):
+        try:
+            data = {
+                "usuario_id": usuario_id,
+                "cuadrilla_id": cuadrilla_id,
+                "inicio_hora": inicio_hora,
+                "fin_hora": fin_hora,
+                "dia_semana": dia_semana,
+            }
+            result = self._client.table("turnos").insert(data).execute()
+            return result.data[0]
+        except Exception as exc:
+            raise ConnectionError(
+                "Error de red. No se pudo guardar el turno."
+            ) from exc
+
+    def delete_turno(self, turno_id):
+        try:
+            self._client.table("turnos").delete().eq("id", turno_id).execute()
+            return True
+        except Exception as exc:
+            raise ConnectionError(
+                "Error de red. No se pudo guardar el turno."
+            ) from exc
+
+    # ── Chat (S3_HU02) ───────────────────────────────────────────
+
+    def get_mensajes_chat(self, cuadrilla_id, after_timestamp):
+        query = (
+            self._client.table("mensajes_chat")
+            .select("*, perfiles(nombre_completo)")
+            .eq("cuadrilla_id", cuadrilla_id)
+        )
+        if after_timestamp:
+            query = query.gt("timestamp", after_timestamp)
+
+        result = query.order("timestamp", desc=False).execute()
+        mensajes = result.data or []
+
+        # Normalize nested JOIN → flat key (match MockRepository contract)
+        for msg in mensajes:
+            perfil_data = msg.get("perfiles") or {}
+            msg["nombre_usuario"] = (
+                perfil_data.get("nombre_completo") or "Usuario eliminado"
+            )
+
+        return mensajes
+
+    def send_mensaje_chat(self, cuadrilla_id, usuario_id, texto_mensaje, es_alerta=False):
+        try:
+            data = {
+                "cuadrilla_id": cuadrilla_id,
+                "usuario_id": usuario_id,
+                "texto_mensaje": texto_mensaje,
+                "es_alerta": es_alerta,
+            }
+            result = self._client.table("mensajes_chat").insert(data).execute()
+            return result.data[0]
+        except Exception as exc:
+            raise ConnectionError(
+                "Error de red. No se pudo enviar el mensaje."
+            ) from exc

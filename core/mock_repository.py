@@ -30,11 +30,38 @@ class MockRepository:
         self._alerts = []
         self._inventory = []
         self._assignments = []
+        self._cuadrillas = []
+        self._turnos = []
+        self._mensajes = []
         self._seed_data()
 
     # ── Seed ──────────────────────────────────────────────────────
 
     def _seed_data(self):
+        cuadrilla_alpha_id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        cuadrilla_bravo_id = "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+
+        # Cuadrillas
+        self._cuadrillas.append(
+            {
+                "id": cuadrilla_alpha_id,
+                "nombre_cuadrilla": "Cuadrilla Alpha",
+            }
+        )
+        self._cuadrillas.append(
+            {
+                "id": cuadrilla_bravo_id,
+                "nombre_cuadrilla": "Cuadrilla Bravo",
+            }
+        )
+
+        # Role → cuadrilla mapping for demo users
+        cuadrilla_by_role = {
+            "voluntario": cuadrilla_alpha_id,
+            "lider_cuadrilla": cuadrilla_alpha_id,
+            "comando": cuadrilla_bravo_id,
+        }
+
         demo_users = [
             {
                 "email": "voluntario@unity.cl",
@@ -70,15 +97,18 @@ class MockRepository:
                 "email": user["email"],
                 "password_hash": pw_hash,
             }
+            assigned_cuadrilla = cuadrilla_by_role.get(user["rol"], "")
             self._profiles[uid] = {
                 "id": uid,
                 "nombre_completo": user["nombre"],
                 "habilidades": user["habilidades"],
                 "disponibilidad": user["disponibilidad"],
                 "rol": user["rol"],
+                "cuadrilla_id": assigned_cuadrilla,
                 "tour_completado": True,
                 "creado_en": datetime.now().isoformat(),
             }
+
 
         # Inventory
         tools = [
@@ -107,9 +137,33 @@ class MockRepository:
                 "usuario_id": first_uid,
                 "latitud": -36.8271,
                 "longitud": -73.0503,
+                "tipo_emergencia": "",
                 "resuelta": False,
                 "fecha_alerta": datetime.now().isoformat(),
                 "nombre_usuario": "Ana García",
+            }
+        )
+
+        # Sample chat messages
+        lider_uid = list(self._profiles.keys())[1]
+        self._mensajes.append(
+            {
+                "id": str(uuid.uuid4()),
+                "cuadrilla_id": cuadrilla_alpha_id,
+                "usuario_id": lider_uid,
+                "texto_mensaje": "Bienvenidos al chat de Cuadrilla Alpha.",
+                "es_alerta": False,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
+        self._mensajes.append(
+            {
+                "id": str(uuid.uuid4()),
+                "cuadrilla_id": cuadrilla_alpha_id,
+                "usuario_id": first_uid,
+                "texto_mensaje": "¡Hola equipo! Lista para la jornada.",
+                "es_alerta": False,
+                "timestamp": datetime.now().isoformat(),
             }
         )
 
@@ -177,13 +231,14 @@ class MockRepository:
 
     # ── SOS Alerts ────────────────────────────────────────────────
 
-    def create_alert(self, user_id, latitud, longitud):
+    def create_alert(self, user_id, latitud, longitud, tipo_emergencia=""):
         profile = self._profiles.get(user_id, {})
         alert = {
             "id": str(uuid.uuid4()),
             "usuario_id": user_id,
             "latitud": latitud,
             "longitud": longitud,
+            "tipo_emergencia": tipo_emergencia,
             "resuelta": False,
             "fecha_alerta": datetime.now().isoformat(),
             "nombre_usuario": profile.get("nombre_completo", "Desconocido"),
@@ -263,3 +318,97 @@ class MockRepository:
 
     def get_all_volunteers(self):
         return list(self._profiles.values())
+
+    # ── Cuadrillas (S3) ──────────────────────────────────────────
+
+    def get_cuadrilla(self, cuadrilla_id):
+        """Return a single cuadrilla by ID, or None."""
+        for cuadrilla in self._cuadrillas:
+            if cuadrilla["id"] == cuadrilla_id:
+                return cuadrilla.copy()
+        return None
+
+    def get_cuadrillas(self):
+        """Return all cuadrillas."""
+        return [c.copy() for c in self._cuadrillas]
+
+    # ── Turnos (S3_HU01) ─────────────────────────────────────────
+
+    def get_turnos_by_cuadrilla(self, cuadrilla_id):
+        """Return all turnos for a given cuadrilla."""
+        result = []
+        for turno in self._turnos:
+            if turno["cuadrilla_id"] == cuadrilla_id:
+                entry = turno.copy()
+                profile = self._profiles.get(turno["usuario_id"], {})
+                entry["nombre_usuario"] = profile.get(
+                    "nombre_completo", "Desconocido"
+                )
+                result.append(entry)
+        return result
+
+    def create_turno(self, usuario_id, cuadrilla_id, inicio_hora, fin_hora, dia_semana):
+        """Insert a new turno. Returns the created record."""
+        turno = {
+            "id": str(uuid.uuid4()),
+            "usuario_id": usuario_id,
+            "cuadrilla_id": cuadrilla_id,
+            "inicio_hora": inicio_hora,
+            "fin_hora": fin_hora,
+            "dia_semana": dia_semana,
+        }
+        self._turnos.append(turno)
+
+        profile = self._profiles.get(usuario_id, {})
+        result = turno.copy()
+        result["nombre_usuario"] = profile.get("nombre_completo", "Desconocido")
+        return result
+
+    def delete_turno(self, turno_id):
+        """Delete a turno by ID. Returns True on success."""
+        for i, turno in enumerate(self._turnos):
+            if turno["id"] == turno_id:
+                self._turnos.pop(i)
+                return True
+        return False
+
+    # ── Chat (S3_HU02) ───────────────────────────────────────────
+
+    def get_mensajes_chat(self, cuadrilla_id, after_timestamp):
+        """Return messages for a cuadrilla after the given timestamp.
+
+        Pass an empty string to get all messages.
+        """
+        result = []
+        for msg in self._mensajes:
+            if msg["cuadrilla_id"] != cuadrilla_id:
+                continue
+            if after_timestamp and msg["timestamp"] <= after_timestamp:
+                continue
+            entry = msg.copy()
+            profile = self._profiles.get(msg["usuario_id"], {})
+            entry["nombre_usuario"] = profile.get(
+                "nombre_completo", "Desconocido"
+            )
+            result.append(entry)
+        result.sort(key=lambda m: m["timestamp"])
+        return result
+
+    def send_mensaje_chat(
+        self, cuadrilla_id, usuario_id, texto_mensaje, es_alerta=False
+    ):
+        """Insert a chat message. Returns the created record."""
+        mensaje = {
+            "id": str(uuid.uuid4()),
+            "cuadrilla_id": cuadrilla_id,
+            "usuario_id": usuario_id,
+            "texto_mensaje": texto_mensaje,
+            "es_alerta": es_alerta,
+            "timestamp": datetime.now().isoformat(),
+        }
+        self._mensajes.append(mensaje)
+
+        profile = self._profiles.get(usuario_id, {})
+        result = mensaje.copy()
+        result["nombre_usuario"] = profile.get("nombre_completo", "Desconocido")
+        return result

@@ -41,6 +41,16 @@ class Colors:
     DIVIDER = "#38383A"
     BORDER = "#48484A"
 
+    # Chat (S3_HU02)
+    CHAT_BUBBLE_SELF = "#2C3E50"
+    CHAT_BUBBLE_OTHER = "#2C2C2E"
+    CHAT_ALERT_BORDER = "#FF453A"
+
+    # Calendar / Turnos (S3_HU01)
+    TURNO_LIBRE = "#3A3A3C"
+    TURNO_ASIGNADO = "#C67C4E"
+    TURNO_CONFLICTO = "#FF453A"
+
 
 class Spacing:
     """Consistent spacing scale (in pixels)."""

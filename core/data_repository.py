@@ -55,7 +55,8 @@ class DataRepository(Protocol):
 
     # ── SOS Alerts ────────────────────────────────────────────────
     def create_alert(
-        self, user_id: str, latitud: float, longitud: float
+        self, user_id: str, latitud: float, longitud: float,
+        tipo_emergencia: str = "",
     ) -> dict: ...
     def get_active_alerts(self) -> list: ...
     def get_user_alerts(self, user_id: str) -> list: ...
@@ -74,3 +75,40 @@ class DataRepository(Protocol):
     def get_active_alerts_count(self) -> int: ...
     def get_critical_tools(self) -> list: ...
     def get_all_volunteers(self) -> list: ...
+
+    # ── Cuadrillas (S3) ──────────────────────────────────────────
+    def get_cuadrilla(self, cuadrilla_id: str) -> dict:
+        """Return a single cuadrilla by ID, or None."""
+        ...
+    def get_cuadrillas(self) -> list:
+        """Return all cuadrillas."""
+        ...
+
+    # ── Turnos (S3_HU01) ─────────────────────────────────────────
+    def get_turnos_by_cuadrilla(self, cuadrilla_id: str) -> list:
+        """Return all turnos for a given cuadrilla."""
+        ...
+    def create_turno(
+        self, usuario_id: str, cuadrilla_id: str,
+        inicio_hora: str, fin_hora: str, dia_semana: int,
+    ) -> dict:
+        """Insert a new turno. Returns the created record."""
+        ...
+    def delete_turno(self, turno_id: str) -> bool:
+        """Delete a turno by ID. Returns True on success."""
+        ...
+
+    # ── Chat (S3_HU02) ───────────────────────────────────────────
+    def get_mensajes_chat(self, cuadrilla_id: str, after_timestamp: str) -> list:
+        """Return messages for a cuadrilla after the given timestamp.
+
+        Pass an empty string to get all messages.
+        """
+        ...
+    def send_mensaje_chat(
+        self, cuadrilla_id: str, usuario_id: str,
+        texto_mensaje: str, es_alerta: bool = False,
+    ) -> dict:
+        """Insert a chat message. Returns the created record."""
+        ...
+

@@ -29,17 +29,24 @@ else:
     repository = MockRepository()
 
 # ── Navigation definitions per role (§6.3) ─────────────────────
-# Sprint 2: SOS removed from tabs — it's now a global FAB (S2_HU03)
+# Sprint 3: Added Turnos, Chat, and SOS Report tabs for all roles.
+# SOS send remains a global FAB (S2_HU03); SOS Report is the enhanced view.
 
 ROLE_TABS = {
     "voluntario": [
+        {"label": "Turnos", "icon": ft.icons.CALENDAR_TODAY_OUTLINED, "route": "turnos"},
+        {"label": "Chat", "icon": ft.icons.CHAT_OUTLINED, "route": "chat"},
         {"label": "Perfil", "icon": ft.icons.PERSON_OUTLINED, "route": "profile_display"},
     ],
     "lider_cuadrilla": [
+        {"label": "Turnos", "icon": ft.icons.CALENDAR_TODAY_OUTLINED, "route": "turnos"},
+        {"label": "Chat", "icon": ft.icons.CHAT_OUTLINED, "route": "chat"},
         {"label": "Equipos", "icon": ft.icons.BUILD_OUTLINED, "route": "equipment"},
         {"label": "Perfil", "icon": ft.icons.PERSON_OUTLINED, "route": "profile_display"},
     ],
     "comando": [
+        {"label": "Turnos", "icon": ft.icons.CALENDAR_TODAY_OUTLINED, "route": "turnos"},
+        {"label": "Chat", "icon": ft.icons.CHAT_OUTLINED, "route": "chat"},
         {"label": "Equipos", "icon": ft.icons.BUILD_OUTLINED, "route": "equipment"},
         {"label": "Dashboard", "icon": ft.icons.DASHBOARD_OUTLINED, "route": "dashboard"},
         {"label": "Perfil", "icon": ft.icons.PERSON_OUTLINED, "route": "profile_display"},
@@ -64,6 +71,7 @@ def main(page):
         "user_id": None,
         "user_email": None,
         "role": None,
+        "cuadrilla_id": None,  # S3: loaded from profile on auth
         "current_tab": 0,
         "tour_active": False,
         "tour_step": 0,
@@ -76,17 +84,29 @@ def main(page):
         from views.equipment_view import build_equipment_view
         from views.dashboard_view import build_dashboard_view
         from views.profile_view import build_profile_display_view
+        from views.turnos_view import build_turnos_view
+        from views.chat_view import build_chat_view
+        from views.sos_view import build_sos_report_view
 
         uid = state["user_id"]
+        cid = state["cuadrilla_id"]
+        rol = state.get("role", "voluntario")
+
+        if route_name == "turnos":
+            return build_turnos_view(page, repository, uid, cid, rol)
+        if route_name == "chat":
+            return build_chat_view(page, repository, uid, cid)
         if route_name == "equipment":
             return build_equipment_view(page, repository, uid)
         if route_name == "dashboard":
             return build_dashboard_view(page, repository, uid)
+        if route_name == "sos_report":
+            return build_sos_report_view(page, repository, uid, cid)
         if route_name == "profile_display":
             return build_profile_display_view(
                 page, repository, uid,
                 user_email=state.get("user_email", ""),
-                viewer_role=state.get("role", "voluntario"),
+                viewer_role=rol,
             )
         return ft.Text("Vista no encontrada", color=Colors.DANGER)
 
@@ -144,6 +164,7 @@ def main(page):
         state["user_id"] = None
         state["user_email"] = None
         state["role"] = None
+        state["cuadrilla_id"] = None
         state["current_tab"] = 0
         state["tour_active"] = False
         state["tour_step"] = 0
@@ -187,122 +208,275 @@ def main(page):
             page.views[-1].floating_action_button = fab
         page.update()
 
-    # ── S.O.S Confirmation Dialog (S2_HU04) ──────────────────────
+    # ── S.O.S Report BottomSheet (S3_HU03 + HU04) ──────────────────
 
     def _handle_sos_press(e):
-        """Handle FAB click — show send confirmation dialog."""
+        """Handle FAB click — open BottomSheet with interactive report form."""
         if state["tour_active"]:
             # §4.6: absolute block during tour — do nothing
             return
 
-        def _confirm_sos(e):
-            dialog.open = False
-            page.update()
-            _send_sos_alert()
-
-        def _cancel_sos(e):
-            dialog.open = False
-            page.update()
-
-        dialog = ft.AlertDialog(
-            modal=True,
-            title=ft.Row(
-                controls=[
-                    ft.Icon(ft.icons.WARNING_ROUNDED, color=Colors.DANGER, size=28),
-                    ft.Text(
-                        "  Confirmar Alerta de Emergencia",
-                        size=Typography.SUBTITLE,
-                        weight=ft.FontWeight.W_600,
-                        color=Colors.DANGER,
-                    ),
-                ],
-            ),
-            content=ft.Container(
-                content=ft.Text(
-                    "Se enviarán tus coordenadas de ubicación "
-                    "al Centro de Comando de forma inmediata.\n\n"
-                    "¿Deseas confirmar el envío de la alerta?",
-                    size=Typography.BODY_LARGE,
-                    color=Colors.TEXT_PRIMARY,
-                ),
-                width=300,
-                padding=ft.padding.symmetric(vertical=Spacing.SM),
-            ),
-            actions=[
-                ft.OutlinedButton(
-                    text="Cancelar",
-                    on_click=_cancel_sos,
-                    style=ft.ButtonStyle(
-                        color=Colors.TEXT_SECONDARY,
-                        shape=ft.RoundedRectangleBorder(radius=BorderRadius.MD),
-                        side=ft.BorderSide(1, Colors.BORDER),
-                    ),
-                    height=42,
-                ),
-                ft.ElevatedButton(
-                    text="Confirmar",
-                    icon=ft.icons.SEND,
-                    on_click=_confirm_sos,
-                    bgcolor=Colors.DANGER,
-                    color=Colors.TEXT_ON_ACCENT,
-                    height=42,
-                    style=ft.ButtonStyle(
-                        shape=ft.RoundedRectangleBorder(radius=BorderRadius.MD),
-                    ),
-                ),
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
-            bgcolor=Colors.BACKGROUND_PRIMARY,
-            shape=ft.RoundedRectangleBorder(radius=BorderRadius.LG),
+        from core.sos_service import (
+            TIPOS_EMERGENCIA,
+            interpolar_coordenadas,
+            crear_alerta_con_notificacion,
         )
-        page.dialog = dialog
-        dialog.open = True
+
+        # ── Mutable state for the report form ────────────────────
+        report_coords = {"lat": None, "lon": None}
+
+        MAP_W = 400
+        MAP_H = 400
+        PIN_SIZE = 32
+
+        # ── Form widgets ─────────────────────────────────────────
+
+        tipo_dropdown = ft.Dropdown(
+            label="Tipo de Emergencia",
+            prefix_icon=ft.icons.WARNING_AMBER_OUTLINED,
+            bgcolor=Colors.BACKGROUND_SECONDARY,
+            border_color=Colors.BORDER,
+            focused_border_color=Colors.ACCENT_PRIMARY,
+            color=Colors.TEXT_PRIMARY,
+            label_style=ft.TextStyle(color=Colors.TEXT_SECONDARY),
+            border_radius=BorderRadius.MD,
+            text_size=Typography.BODY_LARGE,
+            width=MAP_W,
+            options=[ft.dropdown.Option(t) for t in TIPOS_EMERGENCIA],
+        )
+
+        error_text = ft.Text(
+            value="", color=Colors.DANGER, size=Typography.BODY, visible=False,
+        )
+
+        coords_text = ft.Text(
+            "Toca el mapa para seleccionar ubicación",
+            size=Typography.CAPTION,
+            color=Colors.TEXT_TERTIARY,
+            text_align=ft.TextAlign.CENTER,
+        )
+
+        pin_marker = ft.Container(
+            content=ft.Icon(ft.icons.LOCATION_ON, color=Colors.DANGER, size=PIN_SIZE),
+            left=MAP_W / 2 - PIN_SIZE / 2,
+            top=MAP_H / 2 - PIN_SIZE,
+            visible=False,
+            animate_position=ft.animation.Animation(
+                duration=200, curve=ft.AnimationCurve.EASE_OUT,
+            ),
+        )
+
+        # ── Map click handler ────────────────────────────────────
+
+        def _on_map_tap(e):
+            report_coords["lat"], report_coords["lon"] = interpolar_coordenadas(
+                e.local_x, e.local_y, MAP_W, MAP_H,
+            )
+            pin_marker.left = e.local_x - PIN_SIZE / 2
+            pin_marker.top = e.local_y - PIN_SIZE
+            pin_marker.visible = True
+            coords_text.value = (
+                f"Lat: {report_coords['lat']:.4f}, "
+                f"Lon: {report_coords['lon']:.4f}"
+            )
+            coords_text.color = Colors.TEXT_SECONDARY
+            error_text.visible = False
+            page.update()
+
+        # ── Grid lines for map background ────────────────────────
+
+        grid_lines = []
+        grid_count = 6
+        for i in range(1, grid_count):
+            grid_lines.append(ft.Container(
+                width=1, height=MAP_H, bgcolor=Colors.DIVIDER,
+                left=(MAP_W / grid_count) * i, top=0,
+            ))
+            grid_lines.append(ft.Container(
+                width=MAP_W, height=1, bgcolor=Colors.DIVIDER,
+                left=0, top=(MAP_H / grid_count) * i,
+            ))
+
+        map_container = ft.Container(
+            content=ft.Stack(
+                controls=[
+                    # Map background image
+                    ft.Image(
+                        src="/mapa_concepcion.png",
+                        width=MAP_W,
+                        height=MAP_H,
+                        fit=ft.ImageFit.COVER,
+                    ),
+                    *grid_lines,
+                    ft.GestureDetector(
+                        content=ft.Container(
+                            width=MAP_W,
+                            height=MAP_H,
+                            bgcolor=ft.colors.TRANSPARENT,
+                        ),
+                        on_tap_down=_on_map_tap,
+                    ),
+                    pin_marker,
+                ],
+                width=MAP_W,
+                height=MAP_H,
+            ),
+            width=MAP_W,
+            height=MAP_H,
+            bgcolor=Colors.BACKGROUND_TERTIARY,
+            border_radius=BorderRadius.MD,
+            border=ft.border.all(1, Colors.BORDER),
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        )
+
+        # ── Send handler (dual transactional insert) ─────────────
+
+        def _on_send_report(e):
+            tipo = tipo_dropdown.value
+            result = crear_alerta_con_notificacion(
+                repository=repository,
+                user_id=state["user_id"],
+                latitud=report_coords["lat"],
+                longitud=report_coords["lon"],
+                tipo_emergencia=tipo,
+                cuadrilla_id=state["cuadrilla_id"],
+            )
+
+            if not result.success:
+                error_text.value = result.error
+                error_text.visible = True
+                page.update()
+                return
+
+            # Close sheet first
+            bottom_sheet.open = False
+            page.update()
+
+            if result.alerta_creada_sin_chat:
+                _show_sos_snackbar(
+                    result.error, ft.icons.WARNING_AMBER, Colors.WARNING, 5000,
+                )
+            else:
+                _show_sos_snackbar(
+                    "Reporte de emergencia enviado exitosamente",
+                    ft.icons.CHECK_CIRCLE, Colors.SUCCESS, 3000,
+                )
+            _refresh_sos_fab()
+
+        def _on_cancel(e):
+            bottom_sheet.open = False
+            page.update()
+
+        # ── BottomSheet layout ───────────────────────────────────
+
+        sheet_content = ft.Container(
+            content=ft.Column(
+                controls=[
+                    # Handle bar
+                    ft.Container(
+                        content=ft.Container(
+                            width=40, height=4,
+                            bgcolor=Colors.TEXT_TERTIARY,
+                            border_radius=BorderRadius.FULL,
+                        ),
+                        alignment=ft.alignment.center,
+                        padding=ft.padding.only(top=Spacing.SM, bottom=Spacing.MD),
+                    ),
+                    # Title
+                    ft.Row(
+                        controls=[
+                            ft.Icon(ft.icons.CRISIS_ALERT, color=Colors.DANGER, size=28),
+                            ft.Text(
+                                "  Reporte de Emergencia",
+                                size=Typography.TITLE,
+                                weight=ft.FontWeight.W_600,
+                                color=Colors.DANGER,
+                            ),
+                        ],
+                    ),
+                    ft.Container(height=Spacing.MD),
+                    # Tipo de emergencia
+                    tipo_dropdown,
+                    ft.Container(height=Spacing.MD),
+                    # Map
+                    ft.Text(
+                        "Ubicación de la Emergencia",
+                        size=Typography.SUBTITLE,
+                        weight=ft.FontWeight.W_500,
+                        color=Colors.TEXT_PRIMARY,
+                    ),
+                    ft.Container(height=Spacing.SM),
+                    map_container,
+                    ft.Container(height=Spacing.XS),
+                    coords_text,
+                    ft.Container(height=Spacing.MD),
+                    # Error display
+                    error_text,
+                    # Actions
+                    ft.Row(
+                        controls=[
+                            ft.OutlinedButton(
+                                text="Cancelar",
+                                on_click=_on_cancel,
+                                style=ft.ButtonStyle(
+                                    color=Colors.TEXT_SECONDARY,
+                                    shape=ft.RoundedRectangleBorder(radius=BorderRadius.MD),
+                                    side=ft.BorderSide(1, Colors.BORDER),
+                                ),
+                                height=44,
+                                expand=True,
+                            ),
+                            ft.ElevatedButton(
+                                text="Enviar Reporte",
+                                icon=ft.icons.SEND,
+                                on_click=_on_send_report,
+                                bgcolor=Colors.DANGER,
+                                color=Colors.TEXT_ON_ACCENT,
+                                height=44,
+                                expand=True,
+                                style=ft.ButtonStyle(
+                                    shape=ft.RoundedRectangleBorder(radius=BorderRadius.MD),
+                                ),
+                            ),
+                        ],
+                        spacing=Spacing.MD,
+                    ),
+                    ft.Container(height=Spacing.LG),
+                ],
+                scroll=ft.ScrollMode.AUTO,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            bgcolor=Colors.BACKGROUND_PRIMARY,
+            border_radius=ft.border_radius.only(
+                top_left=BorderRadius.LG,
+                top_right=BorderRadius.LG,
+            ),
+            padding=ft.padding.symmetric(
+                horizontal=Spacing.LG, vertical=Spacing.SM,
+            ),
+        )
+
+        bottom_sheet = ft.BottomSheet(
+            content=sheet_content,
+            open=True,
+        )
+        page.overlay.append(bottom_sheet)
         page.update()
 
-    def _send_sos_alert():
-        """Generate simulated coords and send alert (§4.2)."""
-        lat = random.uniform(-36.8000, -36.8500)
-        lon = random.uniform(-73.0000, -73.0800)
-
-        try:
-            print(f"[SOS] Sending alert for user {state['user_id']}")
-            repository.create_alert(
-                user_id=state["user_id"],
-                latitud=lat,
-                longitud=lon,
-            )
-            print("[SOS] Alert created successfully")
-            page.snack_bar = ft.SnackBar(
-                content=ft.Row(
-                    controls=[
-                        ft.Icon(ft.icons.CHECK_CIRCLE, color=Colors.SUCCESS, size=20),
-                        ft.Text(
-                            "  Alerta SOS enviada al Centro de Comando",
-                            color=Colors.TEXT_PRIMARY,
-                        ),
-                    ],
-                ),
-                bgcolor=Colors.BACKGROUND_SECONDARY,
-                duration=3000,
-            )
-            page.snack_bar.open = True
-        except Exception as exc:
-            print(f"[SOS] Error sending alert: {exc}")
-            page.snack_bar = ft.SnackBar(
-                content=ft.Row(
-                    controls=[
-                        ft.Icon(ft.icons.ERROR_OUTLINE, color=Colors.DANGER, size=20),
-                        ft.Text(
-                            "  Error al enviar alerta. Intenta de nuevo.",
-                            color=Colors.TEXT_PRIMARY,
-                        ),
-                    ],
-                ),
-                bgcolor=Colors.BACKGROUND_SECONDARY,
-                duration=3000,
-            )
-            page.snack_bar.open = True
-        _refresh_sos_fab()
+    def _show_sos_snackbar(message, icon, color, duration):
+        """Themed SnackBar for SOS results."""
+        page.snack_bar = ft.SnackBar(
+            content=ft.Row(
+                controls=[
+                    ft.Icon(icon, color=color, size=20),
+                    ft.Text(f"  {message}", color=Colors.TEXT_PRIMARY),
+                ],
+            ),
+            bgcolor=Colors.BACKGROUND_SECONDARY,
+            duration=duration,
+        )
+        page.snack_bar.open = True
+        page.update()
 
     # ── S.O.S Cancellation Dialog ─────────────────────────────────
 
@@ -666,6 +840,7 @@ def main(page):
 
         if profile:
             state["role"] = profile.get("rol", "voluntario")
+            state["cuadrilla_id"] = profile.get("cuadrilla_id")  # S3
             state["current_tab"] = 0
 
             # Check if tour needs to be shown (§4.4)
@@ -693,4 +868,4 @@ def main(page):
     page.go("/auth")
 
 
-ft.app(target=main)
+ft.app(target=main, assets_dir="assets")
